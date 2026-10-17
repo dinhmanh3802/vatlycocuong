@@ -5050,6 +5050,7 @@ var Store = class _Store {
   static {
     __name(this, "Store");
   }
+  static CACHE = null;
   constructor(db) {
     this.db = db;
     this.ss = /* @__PURE__ */ new Map();
@@ -5057,15 +5058,26 @@ var Store = class _Store {
     this.kvDirty = /* @__PURE__ */ new Map();
     this.sheetsDirty = /* @__PURE__ */ new Set();
   }
+  /* Nhớ tạm toàn bộ dữ liệu trong isolate: mỗi lượt chỉ hỏi D1 một ô "__ver"; khác phiên bản mới nạp lại.
+     Mọi lượt ghi đều đổi __ver (xem flushStatements), nên isolate khác nhau vẫn thấy dữ liệu mới. */
   static async load(db) {
     const st = new _Store(db);
-    const [rows, sheets, kv] = await Promise.all([
-      db.prepare("SELECT ss, tab, rn, data FROM rows ORDER BY ss, tab, rn").all(),
-      db.prepare("SELECT ss, tab, pos FROM sheets ORDER BY ss, pos").all(),
-      db.prepare("SELECT k, v FROM kv").all()
-    ]);
-    for (const s of sheets.results) st.spreadsheet(s.ss).addSheet(s.tab, s.pos);
-    for (const r of rows.results) {
+    const vr = await db.prepare("SELECT v FROM kv WHERE k='__ver'").first();
+    const ver = vr ? String(vr.v) : "";
+    let raw = _Store.CACHE && _Store.CACHE.ver === ver && ver ? _Store.CACHE.raw : null;
+    st.cacheHit = !!raw;
+    if (!raw) {
+      const [rows, sheets, kv] = await Promise.all([
+        db.prepare("SELECT ss, tab, rn, data FROM rows ORDER BY ss, tab, rn").all(),
+        db.prepare("SELECT ss, tab, pos FROM sheets ORDER BY ss, pos").all(),
+        db.prepare("SELECT k, v FROM kv").all()
+      ]);
+      raw = { rows: rows.results, sheets: sheets.results, kv: kv.results };
+      const kvVer = raw.kv.find((x) => x.k === "__ver");
+      _Store.CACHE = { ver: kvVer ? String(kvVer.v) : "", raw };
+    }
+    for (const s of raw.sheets) st.spreadsheet(s.ss).addSheet(s.tab, s.pos);
+    for (const r of raw.rows) {
       const sh = st.spreadsheet(r.ss).getSheetByName(r.tab) || st.spreadsheet(r.ss).addSheet(r.tab);
       sh.rows[r.rn - 1] = JSON.parse(r.data);
     }
@@ -5074,7 +5086,7 @@ var Store = class _Store {
       sh.dirty = false;
       sh.structure = false;
     }
-    for (const x of kv.results) st.kv.set(x.k, x.v);
+    for (const x of raw.kv) st.kv.set(x.k, x.v);
     return st;
   }
   spreadsheet(id) {
@@ -5105,11 +5117,13 @@ var Store = class _Store {
       }
     }
     for (const [k, v] of this.kvDirty) S.push(v === null ? this.db.prepare("DELETE FROM kv WHERE k=?").bind(k) : this.db.prepare("INSERT OR REPLACE INTO kv(k,v) VALUES(?,?)").bind(k, v));
+    if (S.length) S.unshift(this.db.prepare("INSERT OR REPLACE INTO kv(k,v) VALUES('__ver',?)").bind(Date.now().toString(36) + Math.random().toString(36).slice(2, 8)));
     return S;
   }
   async flush() {
     const S = this.flushStatements();
     if (S.length) {
+      _Store.CACHE = null;
       for (let i = 0; i < S.length; i += 90) await this.db.batch(S.slice(i, i + 90));
     }
     return S.length;
@@ -5693,6 +5707,7 @@ var index_default = {
       if (ROSTER_WRITE.has(action) && result.ok && bridge.ok) ctx.waitUntil(pushRoster(store, bridge).catch((e) => console.log("\u0111\u1ED3ng b\u1ED9 danh s\xE1ch l\u1ED7i", e.message)));
       result.ms = Date.now() - t0;
       result.w = nWrites;
+      result.c = store.cacheHit ? 1 : 0;
       result.v = env.APP_VERSION || result.v;
     } catch (e) {
       console.log("L\u1ED6I", action, e && e.stack);

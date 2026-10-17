@@ -73,7 +73,7 @@ export default {
       const nWrites = await store.flush();
       if (side.mails.length && bridge.ok) for (const m of side.mails) ctx.waitUntil(bridge.mail(m).catch(e => console.log('mail lỗi', e.message)));
       if (ROSTER_WRITE.has(action) && result.ok && bridge.ok) ctx.waitUntil(pushRoster(store, bridge).catch(e => console.log('đồng bộ danh sách lỗi', e.message)));
-      result.ms = Date.now() - t0; result.w = nWrites; result.v = env.APP_VERSION || result.v;
+      result.ms = Date.now() - t0; result.w = nWrites; result.c = store.cacheHit ? 1 : 0; result.v = env.APP_VERSION || result.v;
     } catch (e) {
       console.log('LỖI', action, e && e.stack);
       result = { ok: false, error: String(e && e.message || e), code: 'ERR', ms: Date.now() - t0 };

@@ -10,7 +10,7 @@ const DEFAULT_TEMP_PW = 'Matkhau@123';
 const SESSION_TTL_HOURS = 12;
 const APP_VERSION = '7.0.0';
 /** Địa chỉ máy chủ mới (Cloudflare Worker) — dùng để xác nhận lời gọi cầu nối. Để trống nếu chưa chuyển. */
-var WORKER_URL = '';
+var WORKER_URL = 'https://vatlycocuong-api.dinhmanh3802.workers.dev';
 /* Đang chạy trên Cloudflare Worker (lớp tương thích đặt G.WORKER_MODE = true) hay trên Apps Script */
 function isWorker() { try { return typeof WORKER_MODE !== 'undefined' && !!WORKER_MODE; } catch (e) { return false; } }
 const TEN_HE_THONG = 'Vật Lý Cô Lâm Cường';
