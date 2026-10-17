@@ -16,6 +16,28 @@ var Router = {
     var re = new RegExp('^' + pattern.replace(/:([a-zA-Z]+)/g, function (_, k) { keys.push(k); return '([^/]+)'; }) + '/?$');
     this.routes.push({ re: re, keys: keys, fn: fn, nav: (opts && opts.nav) || pattern.split('/')[1] || '' });
   },
+  /** Màn hình fn với tham số params có còn là trang đang mở không (để trang cũ không vẽ đè trang mới) */
+  isCurrent: function (fn, params) {
+    var path = decodeURIComponent((location.hash || '#/').slice(1)) || '/';
+    for (var i = 0; i < this.routes.length; i++) {
+      var r = this.routes[i], m = r.re.exec(path);
+      if (!m) continue;
+      if (r.fn !== fn) return false;
+      var ok = true;
+      r.keys.forEach(function (k, j) { if (params && params[k] !== undefined && String(params[k]) !== m[j + 1]) ok = false; });
+      return ok;
+    }
+    return false;
+  },
+  /** Bọc các màn hình đã đăng ký: gọi lại màn hình cũ sau khi đã chuyển trang thì bỏ qua */
+  guardScreens: function () {
+    this.routes.forEach(function (r) {
+      var name = r.fn && r.fn.name;
+      if (!name || r.fn.__guarded || window[name] !== r.fn) return;
+      var orig = r.fn, wrapped = function (params) { return (Router._disp || Router.isCurrent(orig, params)) ? orig.apply(this, arguments) : Promise.resolve(); };
+      wrapped.__guarded = true; window[name] = wrapped;
+    });
+  },
   go: function (path) { if (('#' + path) === location.hash) Router.resolve(); else location.hash = '#' + path; },
   start: function () { window.addEventListener('hashchange', function () { Router.resolve(); }); Router.resolve(); },
   resolve: async function () {
@@ -27,6 +49,8 @@ var Router = {
     }
     if (App.state.user && App.state.user.role === 'loptruong' && path.indexOf('/diem-danh') !== 0) { history.replaceState(null, '', '#/diem-danh'); path = '/diem-danh'; }   // lớp trưởng chỉ dùng điểm danh
     Router.cur = path;
+    App.navSeq = (App.navSeq || 0) + 1; var seq = App.navSeq;          // trang cũ còn đang tải sẽ tự bỏ kết quả
+    App.busyN = 0; document.body.classList.remove('is-busy');
     Modal.closeAll();
     if (!document.getElementById('view')) return;           // đang ở màn đăng nhập: không vẽ trang
     for (var i = 0; i < this.routes.length; i++) {
@@ -36,7 +60,9 @@ var Router = {
       r.keys.forEach(function (k, j) { params[k] = m[j + 1]; });
       setNav(r.nav);
       window.scrollTo(0, 0);
-      try { await r.fn(params); } catch (e) { toastErr(e); }
+      var pr; Router._disp = true;                    // màn hình gọi ngay trong lúc mở trang luôn hợp lệ
+      try { pr = r.fn(params); } catch (e) { pr = Promise.reject(e); } finally { Router._disp = false; }
+      try { await pr; } catch (e) { if (seq === App.navSeq) toastErr(e); }
       return;
     }
     Router.go('/');
@@ -121,6 +147,7 @@ function renderShell() {
       { label: 'Đổi mật khẩu', icon: 'lock', onClick: function () { changePasswordModal(false); } },
       { label: isAdmin() ? 'Xem nhật ký lỗi' : 'Gửi góp ý cho quản trị', icon: isAdmin() ? 'alert' : 'send', onClick: function () { isAdmin() ? errorLogModal() : feedbackModal(); } },
       { label: 'Mở trang tra điểm', icon: 'link', onClick: function () { window.open('index.html', '_blank'); } },
+      { label: 'Đo tốc độ', icon: 'clock', onClick: perfModal },
       '-',
       { label: 'Đăng xuất', icon: 'logout', danger: true, onClick: logout }
     ]);
@@ -620,6 +647,28 @@ function registerRoutes() {
   if (window.registerBaiRoutes) window.registerBaiRoutes();
   if (window.registerDiemRoutes) window.registerDiemRoutes();
   if (window.registerDdRoutes) window.registerDdRoutes();
+  if (window.registerNgoaiRoutes) window.registerNgoaiRoutes();
+  Router.guardScreens();
+}
+
+/* ---------------- đo tốc độ: thời gian thật của từng lượt gọi trên chính máy này ---------------- */
+var TEN_LENH = { bootstrap: 'Mở web', listBai: 'Danh sách bài', getBaiFull: 'Mở trang bài', getKetQua: 'Xem kết quả', thongKeBai: 'Thống kê',
+  listStudents: 'Danh sách lớp', listGroups: 'Danh sách nhóm', commitDiem: 'Ghi điểm', previewDiem: 'Đối chiếu file điểm', setCongBo: 'Công bố',
+  ddTongQuan: 'Điểm danh: trang chính', ddPhanTich: 'Điểm danh: phân tích', ddMoBuoi: 'Điểm danh: mở buổi', ddLuu: 'Điểm danh: lưu', ddNop: 'Điểm danh: gửi',
+  ngoaiDoiChieu: 'Điểm ngoài: đối chiếu', ngoaiLuu: 'Điểm ngoài: lưu', login: 'Đăng nhập', ping: 'Đánh thức máy chủ' };
+function perfModal() {
+  var P = (Api.perf || []).slice(-300), by = {};
+  P.forEach(function (x) { var o = by[x.a] = by[x.a] || { n: 0, t: 0, s: 0, sn: 0, max: 0 }; o.n++; o.t += x.t; o.max = Math.max(o.max, x.t); if (x.s !== null) { o.s += x.s; o.sn++; } });
+  var rows = Object.keys(by).map(function (a) { var o = by[a]; return { a: a, n: o.n, tb: o.t / o.n, sv: o.sn ? o.s / o.sn : null, max: o.max }; }).sort(function (a, b) { return b.tb - a.tb; });
+  var f = function (ms) { return ms === null ? '—' : (ms / 1000).toFixed(1).replace('.', ',') + ' giây'; };
+  var all = P.length ? P.reduce(function (s, x) { return s + x.t; }, 0) / P.length : 0;
+  var srv = P.filter(function (x) { return x.s !== null; }), sAvg = srv.length ? srv.reduce(function (s, x) { return s + x.s; }, 0) / srv.length : 0;
+  Modal.open({ title: 'Đo tốc độ trên máy này', size: 'lg', body: P.length ? (kv([['Số lượt đo', P.length], ['Trung bình mỗi lượt', f(all)], ['Trong đó máy chủ xử lý', f(sAvg)], ['Mạng và Google', f(Math.max(0, all - sAvg))]], 'tiles') +
+    '<p class="small muted" style="margin:12px 0">"Máy chủ xử lý" là phần code của web (t tối ưu được). "Mạng và Google" là đường truyền và thời gian Google khởi động máy chủ miễn phí (không bỏ được, chỉ giấu bớt).</p>' +
+    '<div class="table-wrap"><table class="tbl"><thead><tr><th>Thao tác</th><th class="r">Số lần</th><th class="r">Trung bình</th><th class="r">Máy chủ</th><th class="r">Chậm nhất</th></tr></thead><tbody>' +
+    rows.map(function (r) { return '<tr><td>' + esc(TEN_LENH[r.a] || r.a) + '</td><td class="r num">' + r.n + '</td><td class="r num"><b>' + f(r.tb) + '</b></td><td class="r num">' + f(r.sv) + '</td><td class="r num">' + f(r.max) + '</td></tr>'; }).join('') +
+    '</tbody></table></div>') : emptyState('clock', 'Chưa có số đo', 'Dùng web một lúc rồi mở lại mục này.'),
+    actions: [{ label: 'Xóa số đo', kind: 'btn-ghost', onClick: function (c) { Api.perf.length = 0; try { localStorage.removeItem('sd_perf'); } catch (e) {} c.close(); toast('Đã xóa số đo', 'success'); } }, { label: 'Đóng', kind: 'btn-primary' }] });
 }
 
 /* tải trước trang một bài khi rê chuột hoặc chạm vào liên kết, để mở ra là có ngay */

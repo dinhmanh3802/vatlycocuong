@@ -93,7 +93,7 @@ async function screenBaiList() {
     var groups = { dang: all.filter(function (b) { return !b.luuTru && b.trangThai !== 'Đã công bố'; }), cong: all.filter(function (b) { return !b.luuTru && b.trangThai === 'Đã công bố'; }), luu: all.filter(function (b) { return b.luuTru; }) };
     var list = (groups[filter] || []).filter(function (b) { return !q || (b.tenBai + ' ' + b.cacNhom.join(' ') + ' ' + (b.teacher || '')).toLowerCase().indexOf(q) !== -1; });
     var html = '<div class="page"><div class="page-head"><div class="titles"><h1>Bài kiểm tra</h1><div class="sub">Mỗi bài: đáp án, ảnh phiếu, điểm, công bố. Làm phần nào trước cũng được.</div></div>' +
-      (isAdmin() ? '' : '<a class="btn btn-primary" href="#/bai/moi">' + icon('plus') + '<span>Tạo bài mới</span></a>') + '</div>' +
+      (isAdmin() ? '' : '<div class="row"><a class="btn" href="#/diem-ngoai/moi">' + icon('upload') + '<span>Thêm điểm ngoài</span></a><a class="btn btn-primary" href="#/bai/moi">' + icon('plus') + '<span>Tạo bài mới</span></a></div>') + '</div>' +
       '<div class="row" style="margin-bottom:14px"><div class="seg" id="bseg"><button data-f="dang" class="' + (filter === 'dang' ? 'active' : '') + '">Đang làm<span class="n">' + groups.dang.length + '</span></button>' +
       '<button data-f="cong" class="' + (filter === 'cong' ? 'active' : '') + '">Đã công bố<span class="n">' + groups.cong.length + '</span></button>' +
       '<button data-f="luu" class="' + (filter === 'luu' ? 'active' : '') + '">Lưu trữ<span class="n">' + groups.luu.length + '</span></button></div>' +
@@ -224,6 +224,7 @@ async function screenBaiHub(params) {
   catch (e) { swap(v, '<div class="page"><a class="back" href="#/bai">' + icon('chevL') + 'Bài kiểm tra</a>' + emptyState('alert', 'Không mở được bài', e.message) + '</div>'); return; }
   function renderHub(b) {
   App.cur = { bai: b };
+  if (baiNgoai(b)) return ngoaiHub(v, b);          // bài chỉ có điểm tổng: trang riêng, gọn
   var cfg = b.cauHinh, mas = cfg.maDeList || [];
   var fill = mas.map(function (m) { return keyFilled(cfg, b.dapAn[m]); }), doneMa = fill.filter(function (f) { return f.done; }).length;
   var keysOk = mas.length && doneMa === mas.length;

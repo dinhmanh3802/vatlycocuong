@@ -104,13 +104,13 @@ function renderResult(d, sbd) {
       b.hang ? ['Hạng trong lớp', b.hang + '/' + b.soHs] : null,
       b.tbNhom !== null && b.tbNhom !== undefined ? ['Điểm TB lớp', fmtScore(b.tbNhom)] : null,
       b.caoNhat !== null && b.caoNhat !== undefined ? ['Điểm cao nhất lớp', fmtScore(b.caoNhat), 'good'] : null,
-      ['Mã đề', b.maDe], ['Ngày kiểm tra', fmtDate(b.ngay)]
+      b.loai === 'ngoai' ? ['Loại điểm', b.nguon || 'Điểm từ nguồn khác'] : null, ['Mã đề', b.maDe], ['Ngày kiểm tra', fmtDate(b.ngay)]
     ], 'tiles');
-    return '<article class="pub-card score-card' + (b.tong >= 8 ? ' top' : '') + '" data-ma="' + esc(b.maBai) + '">' +
-      '<div class="score"><div class="score-ring">' + ringSvg(b.tong, 10) + '<div class="score-num"><b class="num" data-to="' + b.tong + '">0</b><span>điểm</span></div></div>' +
+    return '<article class="pub-card score-card' + (b.tong >= (b.loai === 'ngoai' ? (b.thang || 10) * 0.8 : 8) ? ' top' : '') + '" data-ma="' + esc(b.maBai) + '">' +
+      '<div class="score"><div class="score-ring">' + ringSvg(b.tong, b.loai === 'ngoai' ? (b.thang || 10) : 10) + '<div class="score-num"><b class="num" data-to="' + b.tong + '">0</b><span>' + (b.loai === 'ngoai' && (b.thang || 10) !== 10 ? '/ ' + b.thang : 'điểm') + '</span></div></div>' +
       '<div class="grow"><h3>' + esc(b.tenBai) + '</h3>' + (b.sbdCu ? '<div class="small muted" style="margin-top:4px">Làm bài theo SBD cũ ' + esc(b.sbdCu) + '</div>' : '') + '</div></div>' +
       tiles + '<div class="parts">' + parts + '</div>' +
-      '<button class="btn btn-sm see" data-ma="' + esc(b.maBai) + '">' + icon('eye') + '<span>Xem từng câu</span></button></article>';
+      (b.loai === 'ngoai' ? '' : '<button class="btn btn-sm see" data-ma="' + esc(b.maBai) + '">' + icon('eye') + '<span>Xem từng câu</span></button>') + '</article>';
   }).join('') + '</div>';
   res.innerHTML = html;
   $$('.score-num b[data-to]', res).forEach(function (el, i) { setTimeout(function () { countUp(el, Number(el.dataset.to), 1100); }, 120 + i * 90); });

@@ -652,3 +652,30 @@ table.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size
 .flag { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--amber-soft); font-size: 13.5px; }
 .flag svg { width: 18px; height: 18px; color: var(--amber); flex: none; margin-top: 1px; }
 @media (max-width: 420px) { .dd-seg button { min-width: 36px; } .dd-row { padding: 9px 10px; gap: 8px; } }
+
+/* đang có thao tác chạy: khóa các nút thao tác khác (menu chuyển trang vẫn bấm được) */
+body.is-busy { cursor: progress; }
+body.is-busy #view .btn:not(.is-loading):not(.no-lock), body.is-busy .modal-f .btn:not(.is-loading):not(.no-lock),
+body.is-busy #view .chip, body.is-busy #view .seg button, body.is-busy #view a.item { pointer-events: none; opacity: .5; transition: opacity .15s; }
+
+/* bảng thành thẻ trên điện thoại (bảng soát điểm ngoài) */
+@media (max-width: 640px) {
+  .tbl-cards thead { display: none; }
+  .tbl-cards, .tbl-cards tbody { display: block; width: 100%; }
+  .tbl-cards tr { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; padding: 12px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+  .tbl-cards td { display: block; padding: 0; border: 0; }
+  .tbl-cards td:nth-child(2) { text-align: right; font-size: 17px; }
+  .tbl-cards td:nth-child(3), .tbl-cards td:nth-child(4) { grid-column: 1 / -1; }
+  .tbl-cards td select { max-width: 100% !important; width: 100%; }
+  .table-wrap:has(.tbl-cards) { border: 0; overflow: visible; background: transparent; }
+  /* bảng 5–6 cột (đối chiếu file điểm, chờ xử lý): SBD | mã đề | điểm một hàng; vấn đề, ô chọn em, nút ở dưới */
+  .tbl-cards.cards-3 tr { grid-template-columns: 1fr auto auto; align-items: start; }
+  .tbl-cards.cards-3 td:nth-child(2) { text-align: center; font-size: 13px; color: var(--muted); padding-top: 3px; }
+  .tbl-cards.cards-3 td:nth-child(2):not(:empty)::before { content: 'Mã '; }
+  .tbl-cards.cards-3 td:nth-child(3) { grid-column: auto; text-align: right; font-size: 17px; }
+  .tbl-cards.cards-3 td:nth-child(n+4) { grid-column: 1 / -1; }
+  .tbl-cards.cards-3 td.act { display: flex; gap: 8px; }
+  .tbl-cards.cards-3 td.act .btn-primary { flex: 1; }
+  .tbl-cards.cards-3 select { min-width: 0 !important; }
+  .table-wrap:has(.cards-3) { padding: 10px 10px 2px; }
+}

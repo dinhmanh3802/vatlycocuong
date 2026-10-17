@@ -4,7 +4,7 @@
 'use strict';
 
 var App = window.App = window.App || {};
-App.version = '6.0.0';
+App.version = '7.0.0';
 App.ten = 'Vật Lý Cô Lâm Cường';
 
 /* ---------------- DOM, định dạng ---------------- */
@@ -80,7 +80,7 @@ var Session = {
 };
 
 /* ---------------- gọi máy chủ ---------------- */
-var READ_ACTIONS = { ddTongQuan: 1, ddPhanTich: 1, ddXemBuoi: 1, ping: 1, bootstrap: 1, listGroups: 1, listStudents: 1, listBai: 1, getBai: 1, getBaiFull: 1, anhInfo: 1, getKetQua: 1,
+var READ_ACTIONS = { ngoaiDoiChieu: 1, ddTongQuan: 1, ddPhanTich: 1, ddXemBuoi: 1, ping: 1, bootstrap: 1, listGroups: 1, listStudents: 1, listBai: 1, getBai: 1, getBaiFull: 1, anhInfo: 1, getKetQua: 1,
   getNhatKy: 1, thongKeBai: 1, listUsers: 1, getCaiDat: 1, listGopY: 1, trangThaiTuDong: 1, publicConfig: 1, traDiem: 1, chiTietBai: 1, nhatKyLoi: 1, validateRoster: 1 };
 
 function ApiError(code, message) { var e = new Error(message); e.code = code; return e; }
@@ -103,7 +103,7 @@ var Api = (function () {
   }
   function url() { return (window.APP_CONFIG && window.APP_CONFIG.API_URL) || ''; }
 
-  async function call(action, params, opts) {
+  async function call0(action, params, opts) {
     params = params || {}; opts = opts || {};
     if (!/^https?:\/\//.test(url())) throw ApiError('CONFIG', 'Chưa cấu hình địa chỉ máy chủ. Mở file config.js và dán URL web app vào API_URL.');
     var body = Object.assign({ action: action }, params);
@@ -129,6 +129,7 @@ var Api = (function () {
           throw err;
         }
         if (!READ_ACTIONS[action]) invalidate();
+        opts._srv = j.ms;
         return j.data;
       } catch (e) {
         var isNet = (e && e.name === 'AbortError') || (e instanceof TypeError);
@@ -141,6 +142,42 @@ var Api = (function () {
         if (!opts.silent) bar(-1);
       }
     }
+  }
+
+  /* ---- lớp ngoài: gộp lượt đọc trùng, bỏ kết quả của trang đã rời, báo khi chậm, đo thời gian ---- */
+  var pend = {}, slowAt = 0, never = function () { return new Promise(function () {}); };
+  function call(action, params, opts) {
+    opts = opts || {};
+    var read = !!READ_ACTIONS[action], seq0 = App.navSeq || 0, t0 = Date.now();
+    var key = read ? action + ':' + JSON.stringify(params || {}) + ':' + (opts.noAuth ? '-' : (Session.token() || '')) : null;
+    var slow = opts.silent ? null : setTimeout(function () {
+      if (Date.now() - slowAt > 20000) { slowAt = Date.now(); toast('Máy chủ Google đang xử lý, chờ chút nhé…', 'info'); }
+    }, 3000);
+    var p = key && pend[key];
+    if (!p) {
+      p = call0(action, params, opts);
+      if (key) { pend[key] = p; var clr = function () { delete pend[key]; }; p.then(clr, clr); }
+    }
+    var stale = function () { return !opts.keepAlive && (App.navSeq || 0) !== seq0; };
+    // Lệnh ĐỌC của trang đã rời: bỏ kết quả (không vẽ đè). Lệnh GHI: luôn trả kết quả đầy đủ
+    // (vd mã phiên mới sau khi đổi mật khẩu), việc vẽ lại trang cũ bị chặn ở Router.isCurrent.
+    return p.then(function (d) {
+      clearTimeout(slow); perfLog(action, Date.now() - t0, opts._srv);
+      if (read && stale()) return never();
+      return d;
+    }, function (e) {
+      clearTimeout(slow);
+      if (read && stale()) return never();
+      throw e;
+    });
+  }
+  function perfLog(a, total, srv) {
+    try {
+      Api.perf.push({ a: a, t: Math.round(total), s: srv === undefined ? null : srv, at: Date.now() });
+      if (Api.perf.length > 300) Api.perf.splice(0, Api.perf.length - 300);
+      clearTimeout(perfLog._t);
+      perfLog._t = setTimeout(function () { try { localStorage.setItem('sd_perf', JSON.stringify(Api.perf)); } catch (e) {} }, 1500);
+    } catch (e) {}
   }
 
   /**
@@ -174,13 +211,14 @@ var Api = (function () {
     if (cache[key] && Date.now() - cache[key].t < 60000) return;
     if (prefetch._busy[key]) return;
     prefetch._busy[key] = 1;
-    call(action, params, { silent: true }).then(function (d) {
+    call(action, params, { silent: true, keepAlive: true }).then(function (d) {
       var s = JSON.stringify(d); cache[key] = { t: Date.now(), d: d, s: s };
       try { sessionStorage.setItem('sd_c_' + key, JSON.stringify(cache[key])); } catch (e) {}
     }).catch(function () {}).then(function () { delete prefetch._busy[key]; });
   }
   prefetch._busy = {};
-  return { call: call, swr: swr, invalidate: invalidate, prefetch: prefetch };
+  var perf = []; try { perf = JSON.parse(localStorage.getItem('sd_perf') || '[]') || []; } catch (e) {}
+  return { call: call, swr: swr, invalidate: invalidate, prefetch: prefetch, perf: perf };
 })();
 
 /* ---------------- thông báo ---------------- */
@@ -226,7 +264,8 @@ document.addEventListener('pointerdown', function (e) {
 async function busy(btn, fn, opts) {
   opts = opts || {};
   if (btn && btn.classList.contains('is-loading')) return;
-  var t0 = Date.now(), sp = null;
+  var t0 = Date.now(), sp = null, seq0 = App.navSeq || 0;
+  App.busyN = (App.busyN || 0) + 1; document.body.classList.add('is-busy');
   if (btn) {
     btn.classList.add('is-loading'); btn.setAttribute('aria-busy', 'true');
     sp = document.createElement('span'); sp.className = 'spin'; btn.appendChild(sp);
@@ -247,6 +286,7 @@ async function busy(btn, fn, opts) {
     if (opts.rethrow) throw e;
   } finally {
     if (btn) { btn.classList.remove('is-loading'); btn.removeAttribute('aria-busy'); if (sp) sp.remove(); }
+    if ((App.navSeq || 0) === seq0) { App.busyN = Math.max(0, (App.busyN || 1) - 1); if (!App.busyN) document.body.classList.remove('is-busy'); }
   }
 }
 
@@ -463,4 +503,4 @@ function celebrate(x, y, n) {
 function celebrateAt(el) { if (!el || !el.getBoundingClientRect) return celebrate(); var r = el.getBoundingClientRect(); celebrate(r.left + r.width / 2, r.top + r.height / 2); }
 
 /* ---------------- đánh thức máy chủ sớm (Apps Script "ngủ" thì lượt gọi đầu chậm) ---------------- */
-function warmUp() { try { Api.call('ping', {}, { silent: true, noAuth: true, retry: 0 }).catch(function () {}); } catch (e) {} }
+function warmUp() { try { Api.call('ping', {}, { silent: true, noAuth: true, retry: 0, keepAlive: true }).catch(function () {}); } catch (e) {} }

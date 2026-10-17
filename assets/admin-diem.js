@@ -41,18 +41,61 @@ function initDecisions(imp) {
     imp.dec[r.i] = d;
   });
 }
+/* ---------------- danh sách em để gán một dòng điểm (dùng chung cho màn đối chiếu và mục Chờ xử lý) ----------------
+   Bài thường chấm chung nhiều lớp, và dòng cần gán thường là dòng em tô nhầm SBD (kể cả 3 số đầu), nên lấy MỌI em
+   đang học chưa có điểm của tất cả các nhóm trong bài, xếp: SBD gần giống số trong file → cùng nhóm → các nhóm khác. */
+function sbdKhoangCach(a, b) {          // số chữ số phải thêm, bớt hoặc đổi để biến a thành b ('?' khớp mọi chữ số)
+  a = String(a || '').replace(/[^0-9?]/g, ''); b = String(b || '');
+  if (!a || !b) return 99;
+  var prev = [], cur, i, j;
+  for (j = 0; j <= b.length; j++) prev[j] = j;
+  for (i = 1; i <= a.length; i++) {
+    cur = [i];
+    for (j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] || a[i - 1] === '?' ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+/** list: [{sbd, ho, ten, maNhom}] → nhóm lựa chọn [{nhan, items: [{sbd, text}]}] */
+function ganNhom(srcSbd, list, tenNhom) {
+  var pfx = /^\d{6}$/.test(String(srcSbd || '')) ? String(srcSbd).slice(0, 3) : '', gan = [], cung = [], khac = {};
+  var tn = function (ma) { return (tenNhom && tenNhom[ma]) || ('nhóm ' + ma); };
+  var item = function (a) { return { sbd: a.sbd, text: a.sbd + ' ' + ((a.ho || '') + ' ' + (a.ten || '')).trim() + ' (' + tn(a.maNhom || a.sbd.slice(0, 3)) + ')' }; };
+  list.forEach(function (a) {
+    var d = sbdKhoangCach(srcSbd, a.sbd);
+    if (d <= 2) gan.push({ a: a, d: d });
+    else if (pfx && a.sbd.slice(0, 3) === pfx) cung.push(a);
+    else { var m = a.maNhom || a.sbd.slice(0, 3); (khac[m] = khac[m] || []).push(a); }
+  });
+  gan.sort(function (x, y) { return x.d - y.d || (x.a.sbd < y.a.sbd ? -1 : 1); });
+  var out = [];
+  if (gan.length) out.push({ nhan: 'SBD gần giống ' + srcSbd + ' (có thể em tô nhầm)', items: gan.map(function (x) { return item(x.a); }) });
+  if (cung.length) out.push({ nhan: 'Cùng ' + tn(pfx) + ', chưa có điểm', items: cung.map(item) });
+  Object.keys(khac).sort().forEach(function (m) { out.push({ nhan: tn(m) + ', chưa có điểm', items: khac[m].map(item) }); });
+  return out;
+}
+/** Vẽ các lựa chọn: phần tử [value, text] là một dòng; {nhan, items:[[value, text]]} là một nhóm */
+function optHtml(opts, cur) {
+  var one = function (o) { return '<option value="' + esc(o[0]) + '" data-t="' + esc(o[1]) + '" ' + (o[0] === cur ? 'selected' : '') + '>' + esc(o[1]) + '</option>'; };
+  return opts.map(function (o) { return Array.isArray(o) ? one(o) : '<optgroup label="' + esc(o.nhan) + '">' + o.items.map(one).join('') + '</optgroup>'; }).join('');
+}
+
 function decValue(d) { return d.a === 'assign' ? 'assign:' + d.to : d.a; }
 function parseDec(v) { return v.indexOf('assign:') === 0 ? { a: 'assign', to: v.slice(7) } : { a: v }; }
 function decOptions(r) {
   var pv = EX.imp.pv, codes = r.issues.map(function (x) { return x.code; }), opts = [];
-  var sua = codes.indexOf('DA_SUA_TAY') !== -1, loi = codes.indexOf('KHONG_CO_SBD') !== -1 || codes.indexOf('TRUNG_DS') !== -1;
+  // DA_GAN: máy chủ chỉ báo khi SBD trong file không dùng được (không có trong danh sách / trùng), nên cũng không "ghi như trong file" được
+  var sua = codes.indexOf('DA_SUA_TAY') !== -1, loi = codes.indexOf('KHONG_CO_SBD') !== -1 || codes.indexOf('TRUNG_DS') !== -1 || codes.indexOf('DA_GAN') !== -1;
   if (!loi) opts.push(['keep', sua ? 'Ghi đè bằng điểm trong file' : 'Ghi như trong file']);
   if (!sua) opts.push(['defer', 'Để xử lý sau (giữ trong mục Chờ xử lý)']);
   if (r.daGan) opts.push(['assign:' + r.daGan, 'Gán lại cho SBD ' + r.daGan + ' như lần trước']);
-  var pfx = r.sbd.slice(0, 3), cand = pv.absent.filter(function (a) { return a.sbd.slice(0, 3) === pfx; });
-  if (r.goiY && !cand.find(function (a) { return a.sbd === r.goiY; })) opts.push(['assign:' + r.goiY, 'Gán sang SBD mới ' + r.goiY]);
-  cand.forEach(function (a) { opts.push(['assign:' + a.sbd, 'Gán cho ' + a.sbd + ' ' + ((a.ho || '') + ' ' + (a.ten || '')).trim()]); });
+  if (r.goiY && !pv.absent.find(function (a) { return a.sbd === r.goiY; })) opts.push(['assign:' + r.goiY, 'Gán sang SBD mới ' + r.goiY]);
   opts.push(['skip', sua ? 'Giữ bản đã sửa tay' : 'Bỏ hẳn dòng này (không lưu)']);
+  // Gán cho em khác: mọi em chưa có điểm của tất cả các nhóm trong bài (trước đây chỉ lấy em trùng 3 số đầu SBD,
+  // nên dòng tô nhầm số đầu như 011647, 110648 không có em nào để gán)
+  ganNhom(r.sbd, pv.absent, pv.tenNhom).forEach(function (g) {
+    opts.push({ nhan: 'Gán cho: ' + g.nhan, items: g.items.map(function (x) { return ['assign:' + x.sbd, x.text]; }) });
+  });
   return opts;
 }
 function finalRows() {
@@ -90,7 +133,7 @@ function screenReconcile(params) {
     var cur = decValue(imp.dec[r.i]);
     return '<tr><td><div class="sbd" style="font-weight:650">' + esc(r.sbd) + '</div><div class="small">' + name + '</div></td><td class="c">' + esc(r.maDe) + '</td><td class="r num"><b>' + fmtScore(r.tong) + '</b></td>' +
       '<td class="small">' + r.issues.map(function (x) { return '<div style="color:' + (x.level === 'error' ? 'var(--red)' : 'var(--amber)') + '">' + esc(x.msg) + '</div>'; }).join('') + '</td>' +
-      '<td><select class="input input-sm impDec" data-i="' + r.i + '" style="min-width:220px">' + decOptions(r).map(function (o) { return '<option value="' + esc(o[0]) + '" ' + (o[0] === cur ? 'selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></td></tr>';
+      '<td><select class="input input-sm impDec" data-i="' + r.i + '" style="min-width:220px">' + optHtml(decOptions(r), cur) + '</select></td></tr>';
   }).join('');
   swap(v, '<div class="page"><a class="back" href="#/bai/' + esc(imp.b.maBai) + '">' + icon('chevL') + esc(imp.b.tenBai) + '</a>' +
     '<div class="page-head"><div class="titles"><h1>Đối chiếu file điểm</h1><div class="sub">' + esc(imp.file) + ': ' + pv.rows.length + ' dòng, mã đề ' + esc(maDes) + '. Chưa ghi gì cho tới khi bấm "Ghi điểm".</div></div></div>' +
@@ -102,7 +145,7 @@ function screenReconcile(params) {
     (warns.length ? '<div class="note warn" style="margin-bottom:14px">' + icon('alert') + '<div>' + warns.map(function (w) { return '<div>' + w + '</div>'; }).join('') + '</div></div>' : '') +
     (pv.choXuLy ? '<div class="note blue" style="margin-bottom:14px">' + icon('info') + '<div>Bài đang có ' + pv.choXuLy + ' dòng chờ xử lý từ lần nhập trước. Dòng nào có SBD trùng file này sẽ được thay theo lựa chọn bên dưới.</div></div>' : '') +
     (bad.length ? '<div class="panel" style="padding:0;overflow:hidden"><div style="padding:16px 18px 8px"><h3>Dòng cần quyết định</h3><p class="small muted" style="margin-top:4px">Chưa quyết được (vd em mới học chưa có trong danh sách) cứ để "Để xử lý sau": điểm được giữ lại, thêm em vào danh sách rồi ghép sau.</p></div>' +
-      '<div class="table-wrap" style="border:0;border-top:1px solid var(--line);border-radius:0"><table class="tbl"><thead><tr><th>SBD, họ tên</th><th class="c">Mã</th><th class="r">Điểm</th><th>Vấn đề</th><th>Cách xử lý</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>'
+      '<div class="table-wrap" style="border:0;border-top:1px solid var(--line);border-radius:0"><table class="tbl tbl-cards cards-3"><thead><tr><th>SBD, họ tên</th><th class="c">Mã</th><th class="r">Điểm</th><th>Vấn đề</th><th>Cách xử lý</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>'
       : '<div class="note green">' + icon('okc') + '<div>Mọi dòng đều khớp danh sách lớp.</div></div>') +
     (pv.absent.length ? '<details class="panel" style="margin-top:16px"><summary style="cursor:pointer;font-weight:600">Có tên trong danh sách nhưng không có điểm trong file (' + pv.absent.length + ' em)</summary><p class="small" style="margin-top:10px;columns:2">' +
       pv.absent.map(function (a) { return esc(a.sbd) + ' ' + esc(((a.ho || '') + ' ' + (a.ten || '')).trim()); }).join('<br>') + '</p><p class="small muted">Các em này hiện là "Vắng", nhập tay điểm sau được.</p></details>' : '') +
@@ -112,8 +155,20 @@ function screenReconcile(params) {
     '<div class="panel row" style="margin-top:16px;position:sticky;bottom:12px;box-shadow:var(--shadow-pop)"><span id="impCount" class="grow small"></span>' +
     '<a class="btn btn-ghost" href="#/bai/' + esc(imp.b.maBai) + '">Hủy</a><button class="btn btn-primary btn-lg" id="impGo">' + icon('check') + '<span>Ghi điểm</span></button></div></div>');
   var upd = function () { var n = finalRows().length, d = deferredRows().length; $('#impCount').innerHTML = 'Sẽ ghi <b>' + n + '</b> dòng, để xử lý sau <b>' + d + '</b>, bỏ hẳn <b>' + (pv.rows.length - n - d) + '</b>'; };
-  $$('.impDec').forEach(function (s) { s.onchange = function () { imp.dec[+s.dataset.i] = parseDec(s.value); upd(); }; });
-  upd();
+  // Em đã được chọn gán ở một dòng thì các dòng khác ghi chú ngay, khỏi phải chờ tới lúc bấm "Ghi điểm" mới biết trùng
+  var markUsed = function () {
+    var used = {};
+    Object.keys(imp.dec).forEach(function (i) { var d = imp.dec[i]; if (d && d.a === 'assign') (used[d.to] = used[d.to] || []).push(String(i)); });
+    $$('.impDec').forEach(function (s) {
+      $$('option', s).forEach(function (o) {
+        if (o.value.indexOf('assign:') !== 0) return;
+        var to = o.value.slice(7), khac = (used[to] || []).some(function (i) { return i !== s.dataset.i; });
+        o.textContent = (o.dataset.t || o.textContent) + (khac ? ' · đã chọn ở dòng khác' : '');
+      });
+    });
+  };
+  $$('.impDec').forEach(function (s) { s.onchange = function () { imp.dec[+s.dataset.i] = parseDec(s.value); upd(); markUsed(); }; });
+  upd(); markUsed();
   $('#impGo').onclick = async function () {
     var rowsF = finalRows(), deferred = deferredRows(), dup = dupSbd(rowsF);
     if (dup.length) { toast('SBD ' + dup.join(', ') + ' bị trùng sau khi xử lý. Chọn "Bỏ hẳn" cho một trong các dòng.', 'error'); return; }
@@ -161,7 +216,7 @@ function drawResults() {
   var g = d.groups.find(function (x) { return x.maNhom === tab; });
   var head = '<div class="page"><a class="back" href="#/bai/' + esc(b.maBai) + '">' + icon('chevL') + esc(b.tenBai) + '</a>' +
     '<div class="page-head"><div class="titles"><h1>Kết quả ' + (pub ? '<span class="badge ok">Đã công bố</span>' : '<span class="badge">Chưa công bố</span>') + '</h1>' + kv([['Bài', b.tenBai], ['Ngày kiểm tra', fmtDate(b.ngay)]]) + '</div>' +
-    '<div class="row"><a class="btn" href="#/bai/' + esc(b.maBai) + '/thong-ke">' + icon('chart') + '<span>Thống kê</span></a>' +
+    '<div class="row">' + (baiNgoai(b) ? '' : '<a class="btn" href="#/bai/' + esc(b.maBai) + '/thong-ke">' + icon('chart') + '<span>Thống kê</span></a>') +
     '<div class="menu"><button class="btn" id="rMore">' + icon('download') + '<span>Xuất</span></button></div>' +
     '<button class="btn ' + (pub ? '' : 'btn-primary') + '" id="rPub">' + icon(pub ? 'eyeOff' : 'eye') + '<span>' + (pub ? 'Ẩn điểm' : 'Công bố') + '</span></button></div></div>' +
     (cxN && tab !== '#' ? '<div class="note warn" style="margin-bottom:14px">' + icon('alert') + '<div class="grow">Còn <b>' + cxN + '</b> dòng điểm chưa gán cho học sinh nào, chưa tính vào bảng dưới.</div><button class="btn btn-sm" id="goPend">Xử lý ngay</button></div>' : '') +
@@ -173,6 +228,7 @@ function drawResults() {
     var q = (R.q || '').toLowerCase();
     var shown = list.filter(function (s) { return !q || (s.sbd + ' ' + s.ho + ' ' + s.ten).toLowerCase().indexOf(q) !== -1; });
     if (R.sort === 'diem') shown = shown.slice().sort(function (x, y) { return (y.kq ? y.kq.tong : -1) - (x.kq ? x.kq.tong : -1); });
+    var NG = baiNgoai(b);
     var a = avgTong(list), n = list.filter(function (s) { return s.kq; }).length;
     body = '<div class="grid grid-4" style="margin-bottom:14px"><div class="kpi"><div class="v num">' + n + '<span class="muted" style="font-size:18px">/' + list.length + '</span></div><div class="l">em có điểm</div></div>' +
       '<div class="kpi blue"><div class="v num">' + fmtScore(a) + '</div><div class="l">điểm trung bình</div></div>' +
@@ -181,12 +237,12 @@ function drawResults() {
       '<div class="row" style="margin-bottom:10px"><input class="input input-sm" id="rq" placeholder="Tìm tên hoặc SBD" value="' + esc(R.q || '') + '" style="max-width:240px">' +
       '<div class="seg" id="rSort"><button data-s="sbd" class="' + (R.sort !== 'diem' ? 'active' : '') + '">Theo SBD</button><button data-s="diem" class="' + (R.sort === 'diem' ? 'active' : '') + '">Theo điểm</button></div>' +
       '<span class="grow"></span><button class="btn btn-sm btn-ghost" id="rHist">' + icon('clock') + '<span>Lịch sử sửa</span></button><button class="btn btn-sm btn-ghost" id="rReload">' + icon('refresh') + '<span class="hide-m">Tải lại</span></button></div>' +
-      '<div class="table-wrap"><table class="tbl"><thead><tr><th>SBD</th><th>Họ tên</th><th class="c">Mã</th><th class="r">Điểm</th><th class="r hide-m">P1</th><th class="r hide-m">P2</th><th class="r hide-m">P3</th><th></th></tr></thead><tbody>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr><th>SBD</th><th>Họ tên</th>' + (NG ? '<th class="r">Điểm</th>' : '<th class="c">Mã</th><th class="r">Điểm</th><th class="r hide-m">P1</th><th class="r hide-m">P2</th><th class="r hide-m">P3</th>') + '<th></th></tr></thead><tbody>' +
       (shown.length ? shown.map(function (s) {
         var k = s.kq;
-        return '<tr data-sbd="' + esc(s.sbd) + '" class="' + (k ? '' : 'dim') + '"><td class="sbd">' + esc(s.sbd) + '</td><td>' + esc(((s.ho || '') + ' ' + (s.ten || '')).trim()) + '</td><td class="c">' + (k ? esc(k.maDe) : '') + '</td>' +
+        return '<tr data-sbd="' + esc(s.sbd) + '" class="' + (k ? '' : 'dim') + '"><td class="sbd">' + esc(s.sbd) + '</td><td>' + esc(((s.ho || '') + ' ' + (s.ten || '')).trim()) + '</td>' + (NG ? '' : '<td class="c">' + (k ? esc(k.maDe) : '') + '</td>') +
           '<td class="r num"><b style="font-size:15px">' + (k ? fmtScore(k.tong) : '—') + '</b>' + (k && k.daSua ? ' <span title="Đã sửa tay" style="color:var(--amber)">✎</span>' : '') + '</td>' +
-          '<td class="r hide-m num">' + (k ? fmtScore(k.p1) : '') + '</td><td class="r hide-m num">' + (k ? fmtScore(k.p2) : '') + '</td><td class="r hide-m num">' + (k ? fmtScore(k.p3) : '') + '</td>' +
+          (NG ? '' : '<td class="r hide-m num">' + (k ? fmtScore(k.p1) : '') + '</td><td class="r hide-m num">' + (k ? fmtScore(k.p2) : '') + '</td><td class="r hide-m num">' + (k ? fmtScore(k.p3) : '') + '</td>') +
           '<td class="act">' + (k ? '<button class="btn btn-sm btn-ghost r-edit">' + icon('pen') + '<span class="hide-m">Sửa</span></button>' : '<span class="small muted">Vắng</span> <button class="btn btn-sm r-edit">' + icon('plus') + '<span class="hide-m">Nhập tay</span></button>') + '</td></tr>';
       }).join('') : '<tr><td colspan="8">' + emptyState('search', 'Không có học sinh khớp', '') + '</td></tr>') + '</tbody></table></div>';
   }
@@ -208,7 +264,7 @@ function drawResults() {
   $$('#rSort button').forEach(function (bt) { bt.onclick = function () { R.sort = bt.dataset.s; drawResults(); }; });
   $('#rHist').onclick = function () { historyModal(b.maBai); };
   $('#rReload').onclick = function () { busy(this, function () { return screenResults({ id: b.maBai, fresh: true }); }); };
-  $$('.r-edit').forEach(function (bt) { bt.onclick = function () { var s = findStudent(bt.closest('tr').dataset.sbd) || { sbd: bt.closest('tr').dataset.sbd }; openEditor(s); }; });
+  $$('.r-edit').forEach(function (bt) { bt.onclick = function () { var s = findStudent(bt.closest('tr').dataset.sbd) || { sbd: bt.closest('tr').dataset.sbd }; if (baiNgoai(b)) ngoaiEditModal(s, b, function () { screenResults({ id: b.maBai, fresh: true }); }); else openEditor(s); }; });
 }
 
 async function exportExcel(toDrive) {
@@ -238,22 +294,23 @@ async function historyModal(maBai) {
 
 /* ---------------- mục chờ xử lý ---------------- */
 function pendingHtml(d) {
-  var cand = [];
-  d.groups.forEach(function (g) { g.students.forEach(function (s) { if (!s.kq && s.trangThai === 'Đang học') cand.push({ sbd: s.sbd, label: s.sbd + ' ' + ((s.ho || '') + ' ' + (s.ten || '')).trim() + ' (' + g.tenNhom + ')' }); }); });
+  var cand = [], tenNhom = {};
+  d.groups.forEach(function (g) { tenNhom[g.maNhom] = g.tenNhom; g.students.forEach(function (s) { if (!s.kq && s.trangThai === 'Đang học') cand.push({ sbd: s.sbd, ho: s.ho, ten: s.ten, maNhom: g.maNhom }); }); });
   var rows = d.choXuLy.map(function (c) {
     var m = c.match, hint = '<div>' + esc(c.ghiChu || '') + '</div>';
     if (m) hint += '<div style="color:var(--green)">Giờ SBD này đã có trong danh sách: <b>' + esc(((m.ho || '') + ' ' + (m.ten || '')).trim()) + '</b>' + (m.coKetQua ? ' (đã có điểm bài này)' : '') + (m.trangThai !== 'Đang học' ? ' (' + esc(m.trangThai) + ')' : '') + '</div>';
     if (c.trungDS) hint += '<div style="color:var(--red)">SBD vẫn đang dùng cho ' + c.trungDS + ' học sinh: sửa danh sách lớp trước.</div>';
-    var list = cand.slice(), gan = m && !m.coKetQua;
-    if (gan && !list.find(function (x) { return x.sbd === c.sbd; })) list.unshift({ sbd: c.sbd, label: c.sbd + ' ' + ((m.ho || '') + ' ' + (m.ten || '')).trim() });
+    var gan = m && !m.coKetQua, nhom = ganNhom(c.sbd, cand, tenNhom);
+    if (gan && !cand.find(function (x) { return x.sbd === c.sbd; })) nhom.unshift({ nhan: 'Đúng SBD trong file', items: [{ sbd: c.sbd, text: c.sbd + ' ' + ((m.ho || '') + ' ' + (m.ten || '')).trim() }] });
     return '<tr data-id="' + esc(c.id) + '"><td class="sbd" style="font-weight:650">' + esc(c.sbd || '(trống)') + '</td><td class="c">' + esc(c.maDe) + '</td>' +
-      '<td class="r num"><b>' + fmtScore(c.tong) + '</b><div class="small muted">' + fmtScore(c.p1) + ' / ' + fmtScore(c.p2) + ' / ' + fmtScore(c.p3) + '</div></td><td class="small">' + hint + '</td>' +
-      '<td><select class="input input-sm cxSel" style="min-width:200px"><option value="">Chọn em để gán</option>' + list.map(function (x) { return '<option value="' + esc(x.sbd) + '" ' + (gan && x.sbd === c.sbd ? 'selected' : '') + '>' + esc(x.label) + '</option>'; }).join('') + '</select></td>' +
+      '<td class="r num"><b>' + fmtScore(c.tong) + '</b>' + (c.maDe ? '<div class="small muted">' + fmtScore(c.p1) + ' / ' + fmtScore(c.p2) + ' / ' + fmtScore(c.p3) + '</div>' : '') + '</td><td class="small">' + hint + '</td>' +
+      '<td><select class="input input-sm cxSel" style="min-width:200px"><option value="">' + (nhom.length ? 'Chọn em để gán' : 'Không còn em nào chưa có điểm') + '</option>' +
+        optHtml(nhom.map(function (g) { return { nhan: g.nhan, items: g.items.map(function (x) { return [x.sbd, x.text]; }) }; }), gan ? c.sbd : '') + '</select></td>' +
       '<td class="act"><button class="btn btn-sm btn-primary cx-assign">' + icon('check') + '<span>Gán</span></button> <button class="btn btn-sm btn-ghost cx-discard">' + icon('trash') + '</button></td></tr>';
   }).join('');
   return '<div class="panel" style="margin-bottom:14px"><div class="row"><div class="grow"><h3>Dòng điểm chưa gán cho ai</h3><p class="small muted" style="margin-top:4px">Điểm và câu trả lời vẫn được giữ nguyên ở đây. Thêm em vào danh sách lớp (hoặc sửa SBD trùng) rồi bấm "Ghép lại tự động", hoặc gán tay từng dòng.</p></div>' +
     '<button class="btn btn-primary" id="cxAuto">' + icon('sparkle') + '<span>Ghép lại tự động</span></button></div></div>' +
-    '<div class="table-wrap"><table class="tbl"><thead><tr><th>SBD trong file</th><th class="c">Mã</th><th class="r">Điểm</th><th>Vì sao chưa gán được</th><th>Gán cho</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    '<div class="table-wrap"><table class="tbl tbl-cards cards-3"><thead><tr><th>SBD trong file</th><th class="c">Mã</th><th class="r">Điểm</th><th>Vì sao chưa gán được</th><th>Gán cho</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 function bindPending(maBai) {
   var run = function (btn, payload, okMsg) {

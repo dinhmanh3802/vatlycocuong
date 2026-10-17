@@ -79,7 +79,7 @@ function drawDdBuoi(r) {
     st.syncing = true; st.err = ''; paintState();
     var batch = Object.assign({}, q);
     try {
-      await Api.call('ddLuu', { maBuoi: id, ghi: Object.keys(batch).map(function (s) { return { sbd: s, tt: batch[s] }; }), lyDo: st.lyDo }, { silent: true, retry: 2 });
+      await Api.call('ddLuu', { maBuoi: id, ghi: Object.keys(batch).map(function (s) { return { sbd: s, tt: batch[s] }; }), lyDo: st.lyDo }, { silent: true, retry: 2, keepAlive: true });
       Object.keys(batch).forEach(function (s) { if (q[s] === batch[s]) delete q[s]; });
       persist();
     } catch (e) {
