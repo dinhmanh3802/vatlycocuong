@@ -1,0 +1,1 @@
+{"name":"vatlycocuong-api","private":true,"type":"module","scripts":{"build":"node build.cjs","dev":"node build.cjs && wrangler dev --local --port 8788","deploy":"node build.cjs && wrangler deploy"},"dependencies":{"wrangler":"^4.151.1"}}

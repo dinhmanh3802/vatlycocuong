@@ -1,0 +1,16 @@
+name = "vatlycocuong-api"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "vatlycocuong"
+database_id = "LOCAL"
+
+[vars]
+APP_VERSION = "7.0.0"
+APPS_SCRIPT_URL = ""
+BACKUP_SHEET_ID = "1-kTVzqWCFy22OZVbdKo7Ai4gsFe2lKeVHovKpDeFKRY"
+
+[triggers]
+crons = ["0 19 * * *"]
